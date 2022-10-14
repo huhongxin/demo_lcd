@@ -44,9 +44,13 @@
 #define RS_H gpio_set_level(RS_GPIO, 1)     // 
 #define BL_C gpio_set_level(BACKLIGHT_GPIO, 0)//背光
 #define BL_O gpio_set_level(BACKLIGHT_GPIO, 1)
-#define RST_L gpio_set_level(RST_GPIO, 0) //
-#define RST_H gpio_set_level(RST_GPIO, 1)
+#define RST_L Nop()//gpio_set_level(RST_GPIO, 0) //
+#define RST_H Nop()//gpio_set_level(RST_GPIO, 1)
 //------------------------------------------
+void Nop(){
+
+}
+
 void  SendDataSPI(unsigned char dat)
 {  
    unsigned char i;
@@ -213,8 +217,8 @@ void gpio_init(){
     gpio_set_direction(RS_GPIO, GPIO_MODE_OUTPUT);
     gpio_reset_pin(BACKLIGHT_GPIO);
     gpio_set_direction(BACKLIGHT_GPIO, GPIO_MODE_OUTPUT);
-    gpio_reset_pin(RST_GPIO);
-    gpio_set_direction(RST_GPIO, GPIO_MODE_OUTPUT);    
+    // gpio_reset_pin(RST_GPIO);
+    // gpio_set_direction(RST_GPIO, GPIO_MODE_OUTPUT);    
     BL_O;
     CS0_H;
     SCL_H;
@@ -281,15 +285,15 @@ void app_main(void)
         vTaskDelay(1000 / portTICK_PERIOD_MS);
         LCD_Clear(GBLUE);
         vTaskDelay(1000 / portTICK_PERIOD_MS);
-        printf("Turning on the LED\n");
-        // LCD_Clear(GREEN);
-        // vTaskDelay(1000 / portTICK_PERIOD_MS);
-        // LCD_Clear(YELLOW);
-        // vTaskDelay(1000 / portTICK_PERIOD_MS);
-        // LCD_Clear(BROWN);
-        // vTaskDelay(1000 / portTICK_PERIOD_MS);
-        // LCD_Clear(BRRED);
-        // vTaskDelay(1000 / portTICK_PERIOD_MS);
-        // LCD_Clear(GRAY);
+        // printf("Turning on the LED\n");
+        LCD_Clear(GREEN);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        LCD_Clear(YELLOW);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        LCD_Clear(BROWN);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        LCD_Clear(BRRED);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        LCD_Clear(GRAY);
     }
 }
