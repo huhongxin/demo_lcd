@@ -9,8 +9,8 @@
 #include "sdkconfig.h"
 
 #define WHITE         	 0xFFFF
-#define BLACK         	 0x0000	  
-#define BLUE         	   0x001F  
+#define BLACK         	 0x0000
+#define BLUE         	   0x001F
 #define BRED             0XF81F
 #define GRED 			       0XFFE0
 #define GBLUE			       0X07FF
@@ -19,21 +19,39 @@
 #define GREEN         	 0x07E0
 #define CYAN          	 0x7FFF
 #define YELLOW        	 0xFFE0
-#define BROWN 			 0XBC40 //��ɫ
-#define BRRED 			 0XFC07 //�غ�ɫ
-#define GRAY  			 0X8430 //��ɫ
+#define BROWN 			     0XBC40 
+#define BRRED 			     0XFC07
+#define GRAY  			     0X8430
 
 /* Can use project configuration menu (idf.py menuconfig) to choose the GPIO to blink,
    or you can edit the following line and set a number here.
 */
+#define SIZE096 1
+#define SIZE35 2
 
+#define SIZE SIZE096
+#if SIZE == SIZE35
 
-#define BACKLIGHT_GPIO GPIO_NUM_2
-#define CS_GPIO GPIO_NUM_12
-#define SCL_GPIO GPIO_NUM_14
-#define SDA_GPIO GPIO_NUM_13
-#define RS_GPIO GPIO_NUM_15 
-#define RST_GPIO GPIO_NUM_4 
+  #define BACKLIGHT_GPIO GPIO_NUM_2
+  #define CS_GPIO GPIO_NUM_12
+  #define SCL_GPIO GPIO_NUM_14
+  #define SDA_GPIO GPIO_NUM_13
+  #define RS_GPIO GPIO_NUM_15
+  #define RST_GPIO GPIO_NUM_4
+
+#elif SIZE == SIZE096
+
+  #define BACKLIGHT_GPIO GPIO_NUM_12//低电平有效
+  #define CS_GPIO GPIO_NUM_3
+  #define SCL_GPIO GPIO_NUM_32
+  #define SDA_GPIO GPIO_NUM_33
+  #define RS_GPIO GPIO_NUM_2
+  #define RST_GPIO GPIO_NUM_1
+
+#else
+
+#endif
+
 #define CS0_L gpio_set_level(CS_GPIO, 0)  //片选
 #define CS0_H gpio_set_level(CS_GPIO, 1)
 #define SCL_L gpio_set_level(SCL_GPIO, 0)  //时钟
@@ -41,11 +59,22 @@
 #define SDA_L gpio_set_level(SDA_GPIO, 0)   //MOSI
 #define SDA_H  gpio_set_level(SDA_GPIO, 1)
 #define RS_L gpio_set_level(RS_GPIO, 0)     // D/C
-#define RS_H gpio_set_level(RS_GPIO, 1)     // 
-#define BL_C gpio_set_level(BACKLIGHT_GPIO, 0)//背光
-#define BL_O gpio_set_level(BACKLIGHT_GPIO, 1)
-#define RST_L Nop()//gpio_set_level(RST_GPIO, 0) //
-#define RST_H Nop()//gpio_set_level(RST_GPIO, 1)
+#define RS_H gpio_set_level(RS_GPIO, 1)     //
+
+#if SIZE == SIZE35
+  #define BL_C gpio_set_level(BACKLIGHT_GPIO, 0)//背光
+  #define BL_O gpio_set_level(BACKLIGHT_GPIO, 1)
+  #define RST_L Nop()//gpio_set_level(RST_GPIO, 0) //
+  #define RST_H Nop()//gpio_set_level(RST_GPIO, 1)
+
+#elif SIZE == SIZE096
+  #define BL_C gpio_set_level(BACKLIGHT_GPIO, 1)//背光
+  #define BL_O gpio_set_level(BACKLIGHT_GPIO, 0)
+  #define RST_L gpio_set_level(RST_GPIO, 0) //
+  #define RST_H gpio_set_level(RST_GPIO, 1)
+#endif
+
+
 //------------------------------------------
 void Nop(){
 
@@ -55,7 +84,7 @@ void  SendDataSPI(unsigned char dat)
 {  
    unsigned char i;
    
-   for(i=0; i<8; i++)			
+   for(i=0; i<8; i++)
    {  
       if( (dat&0x80)!=0 ) SDA_H;
         else SDA_L;
@@ -63,7 +92,7 @@ void  SendDataSPI(unsigned char dat)
       dat <<= 1;
 
 	  SCL_L;
-    SCL_H;			
+    SCL_H;
    }
 }
 
@@ -117,7 +146,8 @@ void LCD_Init(void)
     vTaskDelay(100 / portTICK_PERIOD_MS);
     RST_H;   //复位
     // Delay(800);
- 
+
+#if SIZE == SIZE35
     WriteComm(0xE0); 
     WriteData(0x00); 
     WriteData(0x07); 
@@ -202,6 +232,99 @@ void LCD_Init(void)
     vTaskDelay(10 / portTICK_PERIOD_MS);
     WriteComm(0x29); 
     WriteComm(0x2c);
+
+#elif SIZE == SIZE096
+    WriteComm(0x11); 
+    vTaskDelay(1000/ portTICK_PERIOD_MS);
+
+    WriteComm(0xB1);     //------------------------------------ST7735S Frame Rate-----------------------------------------//
+    WriteData(0x05);   
+    WriteData(0x3C);   
+    WriteData(0x3C);   
+
+    WriteComm(0xB2);     
+    WriteData(0x05);   
+    WriteData(0x3C);   
+    WriteData(0x3C);   
+
+    WriteComm(0xB3);     
+    WriteData(0x05);   
+    WriteData(0x3C);   
+    WriteData(0x3C);   
+    WriteData(0x05);   
+    WriteData(0x3C);   
+    WriteData(0x3C);   //------------------------------------End ST7735S Frame Rate-----------------------------------------//
+
+    WriteComm(0xB4);     //Dot inversion
+    WriteData(0x03);   
+
+    WriteComm(0xC0);     //------------------------------------ST7735S Power Sequence-----------------------------------------//
+    WriteData(0x0E);   
+    WriteData(0x0E);   
+    WriteData(0x04);   
+
+    WriteComm(0xC1);     
+    WriteData(0xC0);   
+
+    WriteComm(0xC2);     
+    WriteData(0x0D);   
+    WriteData(0x00);   
+
+    WriteComm(0xC3);     
+    WriteData(0x8D);   
+    WriteData(0x2A);   
+
+    WriteComm(0xC4);     
+    WriteData(0x8D);   
+    WriteData(0xEE);   //---------------------------------End ST7735S Power Sequence-------------------------------------//
+
+    WriteComm(0xC5);     //VCOM
+    WriteData(0x04);   
+
+    WriteComm(0x36);     //MX, MY, RGB mode
+    WriteData(0x08);   
+
+    WriteComm(0x3a);  
+    WriteData(0x05);  
+
+
+    WriteComm(0xE0);     
+    WriteData(0x05);   
+    WriteData(0x1A);   
+    WriteData(0x0B);   
+    WriteData(0x15);   
+    WriteData(0x3D);   
+    WriteData(0x38);   
+    WriteData(0x2E);   
+    WriteData(0x30);   
+    WriteData(0x2D);   
+    WriteData(0x28);   
+    WriteData(0x30);   
+    WriteData(0x3B);   
+    WriteData(0x00);   
+    WriteData(0x01);   
+    WriteData(0x02);   
+    WriteData(0x10);   
+
+    WriteComm(0xE1);     
+    WriteData(0x05);   
+    WriteData(0x1A);   
+    WriteData(0x0B);   
+    WriteData(0x15);   
+    WriteData(0x36);   
+    WriteData(0x2E);   
+    WriteData(0x28);   
+    WriteData(0x2B);   
+    WriteData(0x2B);   
+    WriteData(0x28);   
+    WriteData(0x30);   
+    WriteData(0x3B);   
+    WriteData(0x00);   
+    WriteData(0x01);   
+    WriteData(0x02);   
+    WriteData(0x10);   
+    WriteComm(0x29); 
+#endif
 }
 
 //------------------------------------------
@@ -247,8 +370,11 @@ void gpio_init(){
 // 	CS0_H; 
 // }
 
-#define width 320
-#define height 480
+// #define width 320
+// #define height 480
+#define width 132
+#define height 162
+
 #define wramcmd 0X2C
 #define setxcmd 0X2A
 #define setycmd 0X2B
