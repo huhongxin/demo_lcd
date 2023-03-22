@@ -26,8 +26,18 @@
 /* Can use project configuration menu (idf.py menuconfig) to choose the GPIO to blink,
 or you can edit the following line and set a number here.
 */
+
 #define SIZE096 1
 #define SIZE35 2
+
+// #define width 320
+// #define height 480
+#define width 160
+#define height 104 // 80 + 24（24是一个偏移量，具体与硬件有关系，这是一个坑，影响坐标）
+
+#define wramcmd 0X2C
+#define setxcmd 0X2A
+#define setycmd 0X2B
 
 #define SIZE SIZE096
 #if SIZE == SIZE35
@@ -45,7 +55,7 @@ or you can edit the following line and set a number here.
   #define CS_GPIO GPIO_NUM_32
   #define SCL_GPIO GPIO_NUM_2
   #define SDA_GPIO GPIO_NUM_3
-  #define RS_GPIO GPIO_NUM_33
+  #define RS_GPIO GPIO_NUM_33 //dc
   #define RST_GPIO GPIO_NUM_15
 
 #else
@@ -370,14 +380,6 @@ void gpio_init(){
 // 	CS0_H; 
 // }
 
-// #define width 320
-// #define height 480
-#define width 160
-#define height 120
-
-#define wramcmd 0X2C
-#define setxcmd 0X2A
-#define setycmd 0X2B
 void LCD_Clear(uint32_t color)
 {
 	uint32_t index=0; 
@@ -402,7 +404,6 @@ void LCD_Clear(uint32_t color)
 
 void setSetMemoryArea(uint16_t xStar,uint16_t xEnd,uint16_t yStar,uint16_t yEnd){
 
-	uint32_t index=0;
   WriteComm(setxcmd);
   WriteData(xStar >> 8);WriteData(xStar & 0xff);
   WriteData((xStar)>>8);WriteData((xStar)&0xff);
@@ -420,10 +421,10 @@ void setSetMemoryArea(uint16_t xStar,uint16_t xEnd,uint16_t yStar,uint16_t yEnd)
 //   WriteData();
 // }
 
-void drawLine(uint16_t xStar,uint16_t xEnd,uint16_t yStar,uint16_t yEnd,uint32_t color)
+void drawBlock(uint16_t xStar,uint16_t yStar,uint16_t xEnd,uint16_t yEnd,uint32_t color)
 {
-	uint32_t index=0; 
-	uint32_t totalpoint=(xEnd - xStar) * (yEnd - yStar);
+	uint32_t index = 0; 
+	uint32_t totalpoint = (xEnd - xStar + 1) * (yEnd - yStar + 1);
 
   WriteComm(setxcmd);
   WriteData(xStar >> 8);WriteData(xStar & 0xff);
@@ -434,7 +435,7 @@ void drawLine(uint16_t xStar,uint16_t xEnd,uint16_t yStar,uint16_t yEnd,uint32_t
 
 	WriteComm(0x2c);
 
-	for(index=0;index< totalpoint;index++)
+	for(index=0;index < totalpoint;index++)
 	{
     // WriteData(color>>16);
     WriteData(color >> 8);
@@ -458,27 +459,42 @@ void startRoll(uint8_t i){
   WriteData(i);
 }
 
+void keepRoll1(void){  // 开始滚动，1和2的区别是方向不同
+    uint8_t time = 0;
+    while(1) {
+      startRoll(time);
+      time++;
+      if(time > 160)
+        time = 0;
+      vTaskDelay(10 / portTICK_PERIOD_MS);
+      }
+}
+
+void keepRoll2(void){
+    uint8_t time = 160;
+    while(1) {
+      startRoll(time);
+      time--;
+      if(time == 0)
+        time = 160;
+      vTaskDelay(10 / portTICK_PERIOD_MS);
+    }
+}
+
 void app_main(void)
 {
       gpio_init();
       LCD_Init();
       rollInit();
-    while(1) {
+      while(1) {
       // LCD_Init();
-      LCD_Clear(YELLOW);
-      vTaskDelay(1000 / portTICK_PERIOD_MS);
-      LCD_Clear(GBLUE);
-      vTaskDelay(1000 / portTICK_PERIOD_MS);
+        LCD_Clear(YELLOW);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        LCD_Clear(GBLUE);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
 
-      drawLine(0,80,60,62,RED);
-      uint8_t time = 0;
-      while(1){
-      startRoll(time);
-      time++;
-      if(time >160)
-        time = 0;
-      vTaskDelay(10 / portTICK_PERIOD_MS);
-      }
+        drawBlock(50,50,70,60,RED);
+        keepRoll1();
 
       // // printf("Turning on the LED\n");
       // LCD_Clear(GREEN);
@@ -497,7 +513,7 @@ void app_main(void)
 }
 
 
-/*
+/* 0.96 寸屏幕ST7725S指令
 #define LCD_NOP			0x00	//空命令
 #define LCD_SWRESET		0x01	//软件复位，在睡眠和显示模式下，重置软件后需等待120ms后方可执行下一条指令
 #define LCD_RDDID		0x04	//读取LCD的制造商ID（8位）、驱动版本ID（最高位为1，7位）、驱动程序ID（8位）
