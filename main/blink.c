@@ -7,6 +7,8 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "sdkconfig.h"
+#include "driver/uart.h"
+#include "driver/i2c.h"
 
 #define WHITE 0xFFFF
 #define BLACK 0x0000
@@ -27,19 +29,108 @@
 or you can edit the following line and set a number here.
 */
 
+
+
+uint8_t number0_18[] = {
+0x00,0x7E,0x00,0x80,0xFF,0x01,0xC0,0xFF,0x03,0xE0,0xFF,0x07,0xF0,0xC3,0x0F,0xF0,
+0x80,0x0F,0xF0,0x00,0x0F,0xF8,0x00,0x1F,0x78,0x00,0x1E,0x78,0x00,0x1E,0x78,0x00,
+0x1E,0x78,0x00,0x1E,0x78,0x00,0x1E,0x78,0x00,0x1E,0x78,0x00,0x1E,0x78,0x00,0x1E,
+0x78,0x00,0x1E,0x78,0x00,0x1E,0xF8,0x00,0x1F,0xF0,0x00,0x0F,0xF0,0x00,0x0F,0xF0,
+0xC3,0x0F,0xE0,0xFF,0x07,0xE0,0xFF,0x03,0x80,0xFF,0x01,0x00,0x7E,0x00,/*"0",0*/
+};
+
+uint8_t number1_18[] = {
+0x00,0x70,0x00,0x00,0x78,0x00,0x00,0x78,0x00,0x00,0x7C,0x00,0x00,0x7F,0x00,0x80,
+0x7F,0x00,0xE0,0x7B,0x00,0xE0,0x79,0x00,0x60,0x78,0x00,0x00,0x78,0x00,0x00,0x78,
+0x00,0x00,0x78,0x00,0x00,0x78,0x00,0x00,0x78,0x00,0x00,0x78,0x00,0x00,0x78,0x00,
+0x00,0x78,0x00,0x00,0x78,0x00,0x00,0x78,0x00,0x00,0x78,0x00,0x00,0x78,0x00,0x00,
+0x78,0x00,0x00,0x78,0x00,0x00,0x78,0x00,0x00,0x78,0x00,0x00,0x78,0x00,/*"1",0*/
+}; // 24 * 26
+
+
+uint8_t number2_18[] = {
+0x00,0x7F,0x00,0xE0,0xFF,0x03,0xF0,0xFF,0x07,0xF8,0xFF,0x0F,0xF8,0xC0,0x0F,0x7C,
+0x00,0x1F,0x3C,0x00,0x1E,0x00,0x00,0x1E,0x00,0x00,0x1E,0x00,0x00,0x1E,0x00,0x00,
+0x0F,0x00,0x80,0x0F,0x00,0xC0,0x07,0x00,0xE0,0x03,0x00,0xF0,0x01,0x00,0xF8,0x00,
+0x00,0x7E,0x00,0x00,0x3F,0x00,0xC0,0x0F,0x00,0xE0,0x07,0x00,0xF0,0x03,0x00,0xF0,
+0x00,0x00,0x78,0x00,0x00,0xFC,0xFF,0x1F,0xFC,0xFF,0x1F,0xFC,0xFF,0x1F,/*"2",0*/
+};
+
+uint8_t number3_18[] = {
+0x00,0x3F,0x00,0xC0,0xFF,0x00,0xE0,0xFF,0x03,0xF0,0xFF,0x03,0xF0,0xE1,0x07,0xF8,
+0x80,0x07,0x78,0x80,0x07,0x00,0x80,0x07,0x00,0x80,0x03,0x00,0xE0,0x03,0x00,0xFC,
+0x00,0x00,0xFC,0x00,0x00,0xFC,0x03,0x00,0x80,0x07,0x00,0x00,0x0F,0x00,0x00,0x1E,
+0x00,0x00,0x1E,0x00,0x00,0x1E,0x00,0x00,0x1E,0x78,0x00,0x1E,0xF8,0x00,0x0F,0xF0,
+0x81,0x0F,0xF0,0xFF,0x07,0xE0,0xFF,0x03,0xC0,0xFF,0x01,0x00,0x7F,0x00,/*"3",0*/
+};
+
+uint8_t number4_18[] = {
+0x00,0xC0,0x01,0x00,0xE0,0x01,0x00,0xF0,0x01,0x00,0xF0,0x01,0x00,0xF8,0x01,0x00,
+0xFC,0x01,0x00,0xFE,0x01,0x00,0xFE,0x01,0x00,0xFF,0x01,0x80,0xEF,0x01,0x80,0xE7,
+0x01,0xC0,0xE7,0x01,0xE0,0xE3,0x01,0xF0,0xE1,0x01,0xF0,0xE1,0x01,0xF8,0xE0,0x01,
+0x7C,0xE0,0x01,0xFC,0xFF,0x1F,0xFC,0xFF,0x1F,0xFC,0xFF,0x1F,0x00,0xE0,0x01,0x00,
+0xE0,0x01,0x00,0xE0,0x01,0x00,0xE0,0x01,0x00,0xE0,0x01,0x00,0xE0,0x01,/*"4",0*/
+};
+
+uint8_t number5_18[] = {
+0xC0,0xFF,0x07,0xC0,0xFF,0x07,0xE0,0xFF,0x07,0xE0,0x01,0x00,0xE0,0x01,0x00,0xE0,
+0x01,0x00,0xF0,0x01,0x00,0xF0,0x00,0x00,0xF0,0xFC,0x00,0xF0,0xFE,0x03,0xF0,0xFF,
+0x07,0xF8,0xFF,0x0F,0xF8,0x80,0x0F,0x00,0x00,0x1F,0x00,0x00,0x1E,0x00,0x00,0x1E,
+0x00,0x00,0x1E,0x00,0x00,0x1E,0x00,0x00,0x1E,0x78,0x00,0x1E,0xF8,0x00,0x0F,0xF0,
+0x81,0x0F,0xF0,0xFF,0x07,0xE0,0xFF,0x03,0xC0,0xFF,0x01,0x00,0x7F,0x00,/*"5",0*/
+};
+
+uint8_t number6_18[] = {
+0x00,0xFE,0x00,0x80,0xFF,0x03,0xC0,0xFF,0x07,0xE0,0xFF,0x0F,0xF0,0x81,0x0F,0xF8,
+0x00,0x1F,0x78,0x00,0x1E,0x78,0x00,0x00,0x3C,0x00,0x00,0x3C,0xFC,0x00,0x3C,0xFF,
+0x03,0xBC,0xFF,0x07,0xFC,0xFF,0x0F,0xFC,0x81,0x0F,0x7C,0x00,0x1F,0x3C,0x00,0x1E,
+0x3C,0x00,0x1E,0x3C,0x00,0x1E,0x3C,0x00,0x1E,0x78,0x00,0x1E,0x78,0x00,0x0F,0xF0,
+0x81,0x0F,0xF0,0xFF,0x07,0xE0,0xFF,0x07,0xC0,0xFF,0x01,0x00,0x7E,0x00,/*"6",0*/
+};
+
+uint8_t number7_18[] = {
+0xF8,0xFF,0x1F,0xF8,0xFF,0x1F,0xF8,0xFF,0x1F,0x00,0x00,0x0E,0x00,0x00,0x07,0x00,
+0x80,0x07,0x00,0xC0,0x03,0x00,0xE0,0x01,0x00,0xE0,0x01,0x00,0xF0,0x00,0x00,0xF0,
+0x00,0x00,0x78,0x00,0x00,0x78,0x00,0x00,0x3C,0x00,0x00,0x3C,0x00,0x00,0x1E,0x00,
+0x00,0x1E,0x00,0x00,0x1E,0x00,0x00,0x0F,0x00,0x00,0x0F,0x00,0x00,0x0F,0x00,0x00,
+0x0F,0x00,0x80,0x07,0x00,0x80,0x07,0x00,0x80,0x07,0x00,0x80,0x07,0x00,/*"7",0*/
+};
+
+uint8_t number8_18[] = {
+0x00,0x7E,0x00,0x80,0xFF,0x01,0xE0,0xFF,0x07,0xE0,0xFF,0x07,0xF0,0x81,0x0F,0xF0,
+0x00,0x0F,0xF0,0x00,0x0F,0xF0,0x00,0x0F,0xE0,0x81,0x07,0xC0,0xFF,0x03,0x80,0xFF,
+0x01,0x80,0xFF,0x01,0xE0,0xFF,0x07,0xF0,0x81,0x0F,0xF0,0x00,0x0F,0x78,0x00,0x1E,
+0x78,0x00,0x1E,0x78,0x00,0x1E,0x78,0x00,0x1E,0x78,0x00,0x1E,0xF8,0x00,0x1F,0xF0,
+0x81,0x0F,0xF0,0xFF,0x0F,0xE0,0xFF,0x07,0x80,0xFF,0x01,0x00,0x7E,0x00,/*"8",0*/
+};
+
+uint8_t number9_18[] = {
+0x00,0x7F,0x00,0x80,0xFF,0x01,0xE0,0xFF,0x03,0xF0,0xFF,0x07,0xF0,0x81,0x0F,0xF8,
+0x00,0x0F,0x78,0x00,0x0E,0x78,0x00,0x1E,0x78,0x00,0x1E,0x78,0x00,0x1E,0x78,0x00,
+0x1E,0xF8,0x00,0x1F,0xF0,0x81,0x1F,0xF0,0xFF,0x1F,0xE0,0xFF,0x1E,0xC0,0x7F,0x1E,
+0x00,0x1F,0x1E,0x00,0x00,0x1E,0x00,0x00,0x0F,0x78,0x00,0x0F,0xF8,0x80,0x0F,0xF0,
+0xC1,0x07,0xF0,0xFF,0x03,0xE0,0xFF,0x03,0xC0,0xFF,0x00,0x00,0x3F,0x00,/*"9",0*/
+};
+
+
+
 #define SIZE096 1
 #define SIZE35 2
+#define SIZE20 3 // st7789V
 
 // #define width 320
 // #define height 480
-#define width 160
-#define height 104 // 80 + 24（24是一个偏移量，具体与硬件有关系，这是一个坑，影响坐标）
+// #define width 160
+// #define height 104 // 80 + 24（24是一个偏移量，具体与硬件有关系，这是一个坑，影响坐标）
+
+#define width 320
+#define height 240
 
 #define wramcmd 0X2C
 #define setxcmd 0X2A
 #define setycmd 0X2B
 
-#define SIZE SIZE096
+#define SIZE SIZE20
 #if SIZE == SIZE35
 
   #define BACKLIGHT_GPIO GPIO_NUM_2
@@ -58,6 +149,15 @@ or you can edit the following line and set a number here.
   #define RS_GPIO GPIO_NUM_33 //dc
   #define RST_GPIO GPIO_NUM_15
 
+#elif SIZE == SIZE20
+
+  #define BACKLIGHT_GPIO GPIO_NUM_2//低电平有效
+  #define CS_GPIO GPIO_NUM_12
+  #define SCL_GPIO GPIO_NUM_14
+  #define SDA_GPIO GPIO_NUM_13
+  #define RS_GPIO GPIO_NUM_15 //dc
+  #define RST_GPIO GPIO_NUM_5
+  #define SPI8 1
 #else
 
 #endif
@@ -78,6 +178,11 @@ or you can edit the following line and set a number here.
   #define RST_H Nop()//gpio_set_level(RST_GPIO, 1)
 
 #elif SIZE == SIZE096
+  #define BL_C gpio_set_level(BACKLIGHT_GPIO, 0)//背光
+  #define BL_O gpio_set_level(BACKLIGHT_GPIO, 1)
+  #define RST_L gpio_set_level(RST_GPIO, 0) //
+  #define RST_H gpio_set_level(RST_GPIO, 1)
+#elif SIZE == SIZE20
   #define BL_C gpio_set_level(BACKLIGHT_GPIO, 0)//背光
   #define BL_O gpio_set_level(BACKLIGHT_GPIO, 1)
   #define RST_L gpio_set_level(RST_GPIO, 0) //
@@ -334,9 +439,145 @@ void LCD_Init(void)
     WriteData(0x02);
     WriteData(0x10);
     WriteComm(0x29);
+
+#elif SIZE == SIZE20
+
+    WriteComm(0x11);
+    vTaskDelay(1000/ portTICK_PERIOD_MS);
+    WriteComm(0x36);
+    WriteData(0xA0); // 扫描方向 0xA0 翻转：0x70
+
+    WriteComm(0x3A);
+    WriteData(0x05);  //0x05( 65K Color)
+
+    WriteComm(0x21);
+
+    WriteComm(0xB2);
+    WriteData(0x05);
+    WriteData(0x05);
+    WriteData(0x00);
+    WriteData(0x33);
+    WriteData(0x33);
+
+    WriteComm(0xB7);
+    WriteData(0x23);
+
+    WriteComm(0xBB);
+    WriteData(0x22);
+
+    WriteComm(0xC0);
+    WriteData(0x2C);
+
+    WriteComm(0xC2);
+    WriteData(0x01);
+
+    WriteComm(0xC3);
+    WriteData(0x13);
+
+    WriteComm(0xC4);
+    WriteData(0x20);
+
+    WriteComm(0xC6);
+    WriteData(0x0F);
+
+    WriteComm(0xD0);
+    WriteData(0xA4);
+    WriteData(0xA1);
+
+    WriteComm(0xD6);
+    WriteData(0xA1);
+
+    WriteComm(0xE0);
+    WriteData(0x70);
+    WriteData(0x06);
+    WriteData(0x0C);
+    WriteData(0x08);
+    WriteData(0x09);
+    WriteData(0x27);
+    WriteData(0x2E);
+    WriteData(0x34);
+    WriteData(0x46);
+    WriteData(0x37);
+    WriteData(0x13);
+    WriteData(0x13);
+    WriteData(0x25);
+    WriteData(0x2A);
+
+    WriteComm(0xE1);
+    WriteData(0x70);
+    WriteData(0x04);
+    WriteData(0x08);
+    WriteData(0x09);
+    WriteData(0x07);
+    WriteData(0x03);
+    WriteData(0x2C);
+    WriteData(0x42);
+    WriteData(0x42);
+    WriteData(0x38);
+    WriteData(0x14);
+    WriteData(0x14);
+    WriteData(0x27);
+    WriteData(0x2C);
+
+    WriteComm(0x29);     //Display on
+
+
 #endif
 }
 
+
+void drawFrameBufferBigger(uint8_t* buff,uint16_t size,uint16_t color,uint16_t bgcolor)
+{
+        for (uint16_t i = 0 ;i < size ;i++){
+            for(uint8_t j = 0;j < 8;j++){
+                if(((buff[i] >> j) & 0x01)){
+#if SPI8
+                    WriteData(color >> 8);
+                    WriteData(color & 0xff);
+                }
+                else{
+                    WriteData(bgcolor >> 8);
+                    WriteData(bgcolor & 0xff);
+                }
+            }
+#else
+                    WriteData(color);
+                }
+                else{
+                    WriteData(bgcolor);
+                }
+            }
+#endif
+
+        }
+}
+
+
+
+
+void drawPicture(uint16_t xStar,uint16_t yStar,uint16_t weight,uint16_t hight,uint8_t* buff,uint16_t color,uint16_t bgcolor){
+#if SPI8
+    WriteComm(setxcmd);
+    WriteData(xStar >> 8);WriteData(xStar & 0xff);
+    WriteData((xStar + weight - 1)>>8);WriteData((xStar + weight - 1)&0xff);
+    WriteComm(setycmd);
+    WriteData(yStar >> 8);WriteData(yStar & 0xff);
+    WriteData((yStar + hight - 1) >> 8);WriteData((yStar + hight -1) &0Xff);
+
+	WriteComm(wramcmd);
+
+#else
+    WriteComm(setxcmd);
+    WriteData(xStar);
+    WriteData((xStar + weight - 1));
+    WriteComm(setycmd);
+    WriteData(yStar);
+    WriteData((yStar + hight - 1));
+
+	WriteComm(wramcmd);
+#endif
+    drawFrameBufferBigger(buff,(weight * hight/8),color,bgcolor);
+}
 //------------------------------------------
 void gpio_init(){
       // PIN_FUNC_SELECT( IO_MUX_GPIO13_REG, PIN_FUNC_GPIO)
@@ -481,21 +722,214 @@ void keepRoll2(void){
     }
 }
 
+
+void uart_init(int baud_rate, int tx_pin, int rx_pin) {
+    uart_config_t uart_config = {
+        .baud_rate = baud_rate,
+        .data_bits = UART_DATA_8_BITS,
+        .parity    = UART_PARITY_EVEN,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_APB,
+    };
+    uart_param_config(UART_NUM_1, &uart_config);
+    uart_set_pin(UART_NUM_1,tx_pin ,-1 , UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    uart_driver_install(UART_NUM_1, 1024, 0, 0, NULL, 0);
+}
+
+
+
+#define I2C_MASTER_SCL_IO           33          /*!< GPIO number for I2C master clock */
+#define I2C_MASTER_SDA_IO           32          /*!< GPIO number for I2C master data  */
+#define I2C_MASTER_NUM              I2C_NUM_0   /*!< I2C port number for master dev */
+#define I2C_MASTER_TX_BUF_DISABLE   0           /*!< I2C master do not need buffer */
+#define I2C_MASTER_RX_BUF_DISABLE   0           /*!< I2C master do not need buffer */
+#define I2C_MASTER_FREQ_HZ          400000      /*!< I2C master clock frequency */
+
+#define ADDR_CONFIG 0x24
+#define ADDR_DIGIT1  0x34
+#define ADDR_DIGIT2  0x35
+#define ADDR_DIGIT3  0x36
+#define ADDR_DIGIT4  0x37
+
+// ADDR_CONFIG 0xf1
+// ADDR_DIGIT1 0x00
+
+// void i2c_master_init(void)
+// {
+//     i2c_config_t conf;
+//     conf.mode = 1;
+//     conf.sda_io_num = I2C_MASTER_SDA_IO;
+//     conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
+//     conf.scl_io_num = I2C_MASTER_SCL_IO;
+//     conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
+//     conf.master.clk_speed = I2C_MASTER_FREQ_HZ;
+//     i2c_param_config(I2C_MASTER_NUM, &conf);
+//     i2c_driver_install(I2C_MASTER_NUM, conf.mode,
+//                        I2C_MASTER_RX_BUF_DISABLE,
+//                        I2C_MASTER_TX_BUF_DISABLE, 0);
+// }
+
+// void i2c_master_write_byte(uint8_t dev_addr, uint8_t reg_addr, uint8_t data)
+// {
+//     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+//     i2c_master_start(cmd);
+//     i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_WRITE, ACK_CHECK_EN);
+//     i2c_master_write_byte(cmd, reg_addr, ACK_CHECK_EN);
+//     i2c_master_write_byte(cmd, data, ACK_CHECK_EN);
+//     i2c_master_stop(cmd);
+//     i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+//     i2c_cmd_link_delete(cmd);
+// }
+
+// uint8_t i2c_master_read_byte(uint8_t dev_addr, uint8_t reg_addr)
+// {
+//     uint8_t data = 0;
+//     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+//     i2c_master_start(cmd);
+//     i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_WRITE, ACK_CHECK_EN);
+//     i2c_master_write_byte(cmd, reg_addr, ACK_CHECK_EN);
+//     i2c_master_start(cmd);
+//     i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_READ, ACK_CHECK_EN);
+//     i2c_master_read_byte(cmd, &data, I2C_MASTER_LAST_NACK);
+//     i2c_master_stop(cmd);
+//     i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+//     i2c_cmd_link_delete(cmd);
+//     return data;
+// }
+
+// #define IIC_SCL_PIN 33
+// #define IIC_SDA_PIN 32
+// #define IIC_FREQ_HZ 400000
+
+// void iic_init(void)
+// {
+//     i2c_config_t iic_config = {
+//         .mode = I2C_MODE_MASTER,
+//         .sda_io_num = IIC_SDA_PIN,
+//         .scl_io_num = IIC_SCL_PIN,
+//         .sda_pullup_en = GPIO_PULLUP_ENABLE,
+//         .scl_pullup_en = GPIO_PULLUP_ENABLE,
+//         .master.clk_speed = IIC_FREQ_HZ
+//     };
+
+//     i2c_param_config(I2C_NUM_0, &iic_config);
+//     i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
+// }
+
+// void iic_send_data(uint8_t *data, size_t len,uint8_t add)
+// {
+//     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+
+//     i2c_master_start(cmd);
+//     i2c_master_write_byte(cmd, add,true);
+//     i2c_master_write(cmd, data, len, true);
+//     i2c_master_stop(cmd);
+
+//     esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, 200 / portTICK_RATE_MS);
+//     if (ret != ESP_OK) {
+//     }
+//     printf("ret %x,add = %d\r\n",ret,add);
+//     i2c_cmd_link_delete(cmd);
+// }
+
 void app_main(void)
 {
       gpio_init();
       LCD_Init();
-      rollInit();
+      uart_init(19200,19,18);
+      uint8_t data0[2] = {0x08,0x00};
+      uart_write_bytes(UART_NUM_1, data0, 2);
+      vTaskDelay(20/ portTICK_PERIOD_MS);
+      uint8_t data1[2] = {0x08,0xFF};
+      uart_write_bytes(UART_NUM_1, data1, 2);
+      vTaskDelay(20/ portTICK_PERIOD_MS);
+      uint8_t data2[2] = {0x18,0xfe};
+      uart_write_bytes(UART_NUM_1, data2, 2);
+      // rollInit();
+      // i2c_master_init();
+      // vTaskDelay(1000 / portTICK_PERIOD_MS);
+      // i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+      // i2c_master_start(cmd);
+      // i2c_master_write_byte(cmd, (ADDR_CONFIG << 1) | I2C_MASTER_WRITE, true);
+      // i2c_master_write_byte(cmd, 0xf1, true);
+      iic_init();
+      // uint8_t A = 0xF1;
+      uint8_t B = 0x00;
+      // iic_send_data(&A,1,ADDR_CONFIG);
+      // iic_send_data(&B,1,ADDR_DIGIT1);
+      // iic_send_data(&B,1,ADDR_DIGIT2);
+      // iic_send_data(&B,1,ADDR_DIGIT3);
+      // iic_send_data(&B,1,ADDR_DIGIT4);
+      i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+      i2c_master_start(cmd);
+      // uint8_t data_rd[257];
+      for(uint16_t i = 0; i < 256;i++){
+      // data_rd[i]= i2c_master_write_byte(cmd, i, true);
+      // i2c_master_stop(cmd);
+      // i2c_master_read(cmd, &data_rd[i], 1, I2C_MASTER_ACK);
+      // vTaskDelay(100 / portTICK_PERIOD_MS);
+      iic_send_data(&B,1,i);
+      }
+      // for(uint16_t i = 0; i < 256;i++){
+      //   printf("data_rd[%d] = %x\r\n",i,data_rd[i]);
+      // }
+      // i2c_master_write_byte(cmd, (ADDR_DIGIT1 << 1) | I2C_MASTER_WRITE, true);
+      // i2c_master_write_byte(cmd, 0x00, true); 
+
+      // i2c_master_write_byte(cmd, (ADDR_DIGIT2 << 1) | I2C_MASTER_WRITE, true);
+      // i2c_master_write_byte(cmd, 0x00, true);
+
+      // i2c_master_write_byte(cmd, (ADDR_DIGIT3 << 1) | I2C_MASTER_WRITE, true);
+      // i2c_master_write_byte(cmd, 0x00, true);
+
+      // i2c_master_write_byte(cmd, (ADDR_DIGIT4 << 1) | I2C_MASTER_WRITE, true);
+      // i2c_master_write_byte(cmd, 0x00, true); 
+
+
       while(1) {
       // LCD_Init();
-        LCD_Clear(YELLOW);
+        LCD_Clear(RED);
         vTaskDelay(1000 / portTICK_PERIOD_MS);
-        LCD_Clear(GBLUE);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        // LCD_Clear(GBLUE);
+        // vTaskDelay(1000 / portTICK_PERIOD_MS);
 
-        drawBlock(50,50,70,60,RED);
-        keepRoll1();
+        // drawBlock(50,50,200,60,WHITE);
+        // drawBlock(50,80,200,90,WHITE);
+        // drawBlock(50,100,200,120,WHITE);
+        // keepRoll1();
+      drawPicture(15,15,24,26,number0_18,WHITE,BLACK);
+      drawPicture(45,15,24,26,number1_18,WHITE,BLACK);
+      drawPicture(75,15,24,26,number2_18,WHITE,BLACK);
+      drawPicture(105,15,24,26,number3_18,WHITE,BLACK);
+      drawPicture(135,15,24,26,number4_18,WHITE,BLACK);
+      drawPicture(165,15,24,26,number5_18,WHITE,BLACK);
+      drawPicture(195,15,24,26,number6_18,WHITE,BLACK);
+      drawPicture(225,15,24,26,number7_18,WHITE,BLACK);
+      drawPicture(255,15,24,26,number8_18,WHITE,BLACK);
+      drawPicture(285,15,24,26,number9_18,WHITE,BLACK);
 
+      drawPicture(15,46,24,26,number0_18,WHITE,BLACK);
+      drawPicture(45,46,24,26,number1_18,WHITE,BLACK);
+      drawPicture(75,46,24,26,number2_18,WHITE,BLACK);
+      drawPicture(105,46,24,26,number3_18,WHITE,BLACK);
+      drawPicture(135,46,24,26,number4_18,WHITE,BLACK);
+      drawPicture(165,46,24,26,number5_18,WHITE,BLACK);
+      drawPicture(195,46,24,26,number6_18,WHITE,BLACK);
+      drawPicture(225,46,24,26,number7_18,WHITE,BLACK);
+      drawPicture(255,46,24,26,number8_18,WHITE,BLACK);
+      drawPicture(285,46,24,26,number9_18,WHITE,BLACK);
+
+      drawPicture(15,80,24,26,number0_18,RED,BLACK);
+      drawPicture(45,80,24,26,number1_18,GREEN,BLACK);
+      drawPicture(75,80,24,26,number2_18,BLUE,BLACK);
+      drawPicture(105,80,24,26,number3_18,YELLOW,BLACK);
+      drawPicture(135,80,24,26,number4_18,BROWN,BLACK);
+      drawPicture(165,80,24,26,number5_18,BRRED,BLACK);
+      drawPicture(195,80,24,26,number6_18,GRAY,BLACK);
+      drawPicture(225,80,24,26,number7_18,MAGENTA,BLACK);
+      drawPicture(255,80,24,26,number8_18,CYAN,BLACK);
+      drawPicture(285,80,24,26,number9_18,WHITE,BLACK);
       // // printf("Turning on the LED\n");
       // LCD_Clear(GREEN);
       // vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -507,13 +941,14 @@ void app_main(void)
       // vTaskDelay(1000 / portTICK_PERIOD_MS);
       // LCD_Clear(GRAY);
       while(1) {
+        printf("hello word\r\n");
         vTaskDelay(1000 / portTICK_PERIOD_MS);
       }
  }
 }
 
 
-/* 0.96 寸屏幕ST7725S指令
+/* 0.96 寸屏幕
 #define LCD_NOP			0x00	//空命令
 #define LCD_SWRESET		0x01	//软件复位，在睡眠和显示模式下，重置软件后需等待120ms后方可执行下一条指令
 #define LCD_RDDID		0x04	//读取LCD的制造商ID（8位）、驱动版本ID（最高位为1，7位）、驱动程序ID（8位）
