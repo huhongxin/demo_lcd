@@ -25,6 +25,139 @@
 #define BRRED 0XFC07
 #define GRAY 0X8430
 
+/* -----------------------------------------------------------*/
+#define SCL_PIN           GPIO_NUM_18
+#define SCL_INIT_OUT()    gpio_set_direction(SCL_PIN, GPIO_MODE_OUTPUT)
+#define SCL_H             gpio_set_level(SCL_PIN,1)
+#define SCL_L             gpio_set_level(SCL_PIN,0)
+
+#define SDA_PIN           GPIO_NUM_17
+#define SDA_INIT_OUT()    gpio_set_direction(SDA_PIN, GPIO_MODE_OUTPUT)
+#define SDA_INIT_INPUT()  gpio_set_direction(SDA_PIN, GPIO_MODE_INPUT)
+#define SDA_H             gpio_set_level(SDA_PIN,1)
+#define SDA_L             gpio_set_level(SDA_PIN,0)
+
+
+void I2C_DELAY(void)
+{
+    // asm("NOP");
+    // Delay_us(2);
+    for (uint16_t i = 0;i < 100;i++);
+}
+
+void i2cGpioConfiguration(void)
+{
+    // RST_INIT_OUT();
+    gpio_reset_pin(SCL_PIN);
+    SCL_INIT_OUT();
+    gpio_reset_pin(SDA_PIN);
+    SDA_INIT_OUT();
+    SCL_H;
+    SDA_H;
+    // softResetSensor();
+}
+
+void i2cStart(void)
+{
+    SDA_H;
+    SCL_H;
+    SDA_L;
+    I2C_DELAY();
+    SCL_L;
+}
+
+void i2cStop(void)
+{
+    SCL_L;
+    SDA_L;
+    SCL_H;
+    I2C_DELAY();
+    SDA_H;
+}
+
+void endI2c(void) // 需要低功耗，所以配置引脚
+{
+    SCL_L;
+    SDA_L;
+}
+
+// 主机上传一个字节,并返回从机的应答状态
+uint8_t i2cWriteByte(uint8_t data)
+{
+    uint8_t isAck = 0, mask;
+    //上传8个bit
+    for (mask = 0x80; mask != 0; mask >>= 1)
+    {
+        if ((data & mask) == 0)
+            SDA_L;
+        else
+            SDA_H;
+        I2C_DELAY();
+        SCL_H;
+        I2C_DELAY();
+        SCL_L;
+    }
+    //捕获ack
+    gpio_reset_pin(SDA_PIN);
+    SDA_INIT_INPUT(); //主机释放数据线
+    I2C_DELAY();
+    SCL_H;
+    I2C_DELAY();
+    isAck = gpio_get_level(SDA_PIN);
+    SCL_L;
+    SDA_INIT_OUT();
+    return !isAck;
+}
+
+//主机读取一个字节,可以选择应答或者不应答从机
+uint8_t i2cReadByte(bool isAck)
+{
+    uint8_t dat = 0, mask;
+    //接收8个bit
+    SDA_INIT_INPUT();
+    SCL_H;
+    for (mask = 0x80; mask != 0; mask >>= 1)
+    {
+        I2C_DELAY();
+        SCL_H;
+        I2C_DELAY();
+        if (gpio_get_level(SDA_PIN) == 0)
+            dat &= ~mask;
+        else
+            dat |= mask;
+        I2C_DELAY();
+        SCL_L;
+    }
+    //决定是否ack
+    SDA_INIT_OUT();
+    if (isAck)
+        SDA_L;
+    else
+        SDA_H;
+    I2C_DELAY();
+    SCL_H;
+    I2C_DELAY();
+    SCL_L;
+    return dat;
+}
+
+// 判断设备是否空闲
+bool isIdle(uint8_t deviceAddr)
+{
+    i2cStart();
+    if (i2cWriteByte(deviceAddr)){
+        return 1;
+    }
+    
+    else
+    {
+        i2cStop();
+        return 0;
+    }
+}
+
+/* -----------------------------------------------------------*/
+
 /* Can use project configuration menu (idf.py menuconfig) to choose the GPIO to blink,
 or you can edit the following line and set a number here.
 */
@@ -112,7 +245,17 @@ uint8_t number9_18[] = {
 0xC1,0x07,0xF0,0xFF,0x03,0xE0,0xFF,0x03,0xC0,0xFF,0x00,0x00,0x3F,0x00,/*"9",0*/
 };
 
+// -------------------------------------------------------------
+#define PCA9557_I2C_SLAVE_ADDR  0x18    //(0001 1 A2 A1 A0)
 
+/* 控制寄存器 （CMD）*/
+#define PCA9557_CONTROL_REG_0 0x00	// Input Port Register           (R)    BXXXXXXXX (Default)
+#define PCA9557_CONTROL_REG_1 0x01	// Output Port Register          (R/W)  B00000000 // 引脚控制
+#define PCA9557_CONTROL_REG_2 0x02	// Polarity Inversion Register   (R/W)  B11110000
+#define PCA9557_CONTROL_REG_3 0x03	// Configuration Register        (R/W)  B11111111 // 模式控制
+#define PCA9557_LCD_RST 0x04     // io2 B0000 0100
+#define PCA9557_PRINT_POWER 0x20 // io5 B0010 0000
+//---------------------------------------------------------------------------------
 
 #define SIZE096 1
 #define SIZE35 2
@@ -121,16 +264,16 @@ uint8_t number9_18[] = {
 // #define width 320
 // #define height 480
 // #define width 160
-// #define height 104 // 80 + 24（24是一个偏移量，具体与硬件有关系，这是一个坑，影响坐标）
+// #define height 104 // 80 + 24（24是一个偏移量，具体与硬件有关系，这是一个坑，影响坐标,这个是2.0屏幕）
 
-#define width 320
+#define width 240
 #define height 240
 
 #define wramcmd 0X2C
 #define setxcmd 0X2A
 #define setycmd 0X2B
 
-#define SIZE SIZE20
+#define SIZE 4
 #if SIZE == SIZE35
 
   #define BACKLIGHT_GPIO GPIO_NUM_2
@@ -152,22 +295,27 @@ uint8_t number9_18[] = {
 #elif SIZE == SIZE20
 
   #define BACKLIGHT_GPIO GPIO_NUM_2//低电平有效
-  #define CS_GPIO GPIO_NUM_12
-  #define SCL_GPIO GPIO_NUM_14
-  #define SDA_GPIO GPIO_NUM_13
-  #define RS_GPIO GPIO_NUM_15 //dc
+  #define CS_GPIO GPIO_NUM_10
+  #define SCL_GPIO GPIO_NUM_12
+  #define SDA_GPIO GPIO_NUM_11
+  #define RS_GPIO GPIO_NUM_9 //dc
   #define RST_GPIO GPIO_NUM_5
-  #define SPI8 1
+  #define SPI8 0
 #else
-
+  #define BACKLIGHT_GPIO GPIO_NUM_2//低电平有效
+  #define CS_GPIO GPIO_NUM_10
+  #define SCL_GPIO GPIO_NUM_12
+  #define SDA_GPIO GPIO_NUM_11
+  #define RS_GPIO GPIO_NUM_9 //dc
+  #define RST_GPIO GPIO_NUM_5
 #endif
 
 #define CS0_L gpio_set_level(CS_GPIO, 0)  //片选
 #define CS0_H gpio_set_level(CS_GPIO, 1)
-#define SCL_L gpio_set_level(SCL_GPIO, 0)  //时钟
-#define SCL_H gpio_set_level(SCL_GPIO, 1)
-#define SDA_L gpio_set_level(SDA_GPIO, 0)//MOSI
-#define SDA_H  gpio_set_level(SDA_GPIO, 1)
+#define SCLK_L gpio_set_level(SCL_GPIO, 0)  //时钟
+#define SCLK_H gpio_set_level(SCL_GPIO, 1)
+#define MOSI_L gpio_set_level(SDA_GPIO, 0)//MOSI
+#define MOSI_H  gpio_set_level(SDA_GPIO, 1)
 #define RS_L gpio_set_level(RS_GPIO, 0)// D/C
 #define RS_H gpio_set_level(RS_GPIO, 1)//
 
@@ -201,13 +349,13 @@ unsigned char i;
 
 for(i=0; i<8; i++)
     {  
-    if( (dat&0x80)!=0 ) SDA_H;
-    else SDA_L;
+    if( (dat&0x80)!=0 ) MOSI_H;
+    else MOSI_L;
 
     dat <<= 1;
 
-        SCL_L;
-    SCL_H;
+    SCLK_L;
+    SCLK_H;
     }
 }
 
@@ -231,35 +379,20 @@ void WriteData(unsigned int i)
 	CS0_H;
 }
 
-// void BlockWrite(unsigned int Xstart,unsigned int Xend,unsigned int Ystart,unsigned int Yend) 
-// {
-// 	//ILI9163C
-// 	WriteComm(0x2A);
-// 	WriteData(Xstart>>8);
-// 	WriteData(Xstart);
-// 	WriteData(Xend>>8);
-// 	WriteData(Xend);
-	
-// 	WriteComm(0x2B);
-// 	WriteData(Ystart>>8);
-// 	WriteData(Ystart);
-// 	WriteData(Yend>>8);
-// 	WriteData(Yend);
-	
-// 	WriteComm(0x2c);
-// }
-
+extern void resetLCD(void);
 void LCD_Init(void)
 {
+    resetLCD();
     CS0_L;
     // // RST=1;  //复位
     // Delay(200);
-    RST_H; 
-    vTaskDelay(100 / portTICK_PERIOD_MS);
-    RST_L;//复位
+    // RST_H; 
+    // vTaskDelay(100 / portTICK_PERIOD_MS);
+    // RST_L;//复位
     // Delay(800);
+
     vTaskDelay(100 / portTICK_PERIOD_MS);
-    RST_H;//复位
+    // RST_H;//复位
     // Delay(800);
 
 #if SIZE == SIZE35
@@ -521,7 +654,85 @@ void LCD_Init(void)
 
     WriteComm(0x29);     //Display on
 
+#else
+    WriteComm(0x11);
+    vTaskDelay(1000/ portTICK_PERIOD_MS);
+    // WriteComm(0x3A);
+    // WriteData(0xA0); // 扫描方向 0xA0 翻转：0x70
 
+    WriteComm(0x3A);
+    WriteData(0x05);  //0x05( 65K Color)
+
+    WriteComm(0x21);
+
+    WriteComm(0xB2);
+    WriteData(0x0C);
+    WriteData(0x0C);
+    WriteData(0x00);
+    WriteData(0x33);
+    WriteData(0x33);
+
+    WriteComm(0xB7);
+    WriteData(0x35);
+
+    WriteComm(0xBB);
+    WriteData(0x32);
+
+    WriteComm(0xC0);
+    WriteData(0x2C);
+
+    WriteComm(0xC2);
+    WriteData(0x01);
+
+    WriteComm(0xC3);
+    WriteData(0x15);
+
+    WriteComm(0xC4);
+    WriteData(0x20);
+
+    WriteComm(0xC6);
+    WriteData(0x0F);
+
+    WriteComm(0xD0);
+    WriteData(0xA4);
+    WriteData(0xA1);
+
+    // WriteComm(0xD6);
+    // WriteData(0xA1);
+
+    WriteComm(0xE0);
+    WriteData(0xD0);
+    WriteData(0x08);
+    WriteData(0x0E);
+    WriteData(0x09);
+    WriteData(0x09);
+    WriteData(0x05);
+    WriteData(0x31);
+    WriteData(0x33);
+    WriteData(0x48);
+    WriteData(0x17);
+    WriteData(0x14);
+    WriteData(0x15);
+    WriteData(0x31);
+    WriteData(0x34);
+
+    WriteComm(0xE1);
+    WriteData(0xD0);
+    WriteData(0x08);
+    WriteData(0x0E);
+    WriteData(0x09);
+    WriteData(0x09);
+    WriteData(0x05);
+    WriteData(0x31);
+    WriteData(0x33);
+    WriteData(0x48);
+    WriteData(0x17);
+    WriteData(0x14);
+    WriteData(0x15);
+    WriteData(0x31);
+    WriteData(0x34);
+
+    WriteComm(0x29);     //Display on
 #endif
 }
 
@@ -589,37 +800,21 @@ void gpio_init(){
       gpio_set_direction(SDA_GPIO, GPIO_MODE_OUTPUT);
       gpio_reset_pin(RS_GPIO);
       gpio_set_direction(RS_GPIO, GPIO_MODE_OUTPUT);
+
+#if 0 // 有无背光灯
+
       gpio_reset_pin(BACKLIGHT_GPIO);
       gpio_set_direction(BACKLIGHT_GPIO, GPIO_MODE_OUTPUT);
-      // gpio_reset_pin(RST_GPIO);
-      // gpio_set_direction(RST_GPIO, GPIO_MODE_OUTPUT); 
+      gpio_reset_pin(RST_GPIO);
+      gpio_set_direction(RST_GPIO, GPIO_MODE_OUTPUT); 
       BL_O;
+#endif
       CS0_H;
-      SCL_H;
-      SDA_L;  //MOSI io13
+      SCLK_H;
+      MOSI_L;  //MOSI io13
       RS_H; 
       RS_L; 
 }
-
-// void DispColor(unsigned int color)
-// {
-// 	unsigned int i,j;
-
-// 	BlockWrite(0,COL-1,0,ROW-1);	
-// 	CS0_L; 
-// 	RS_H;
-
-// 	for(i=0;i<ROW;i++)
-// 	{
-// 	 for(j=0;j<COL;j++)
-// 		{ 
-// 			 WriteData(color>>8);  	
-// WriteData(color);  
-// 		}
-// 	}
-
-// 	CS0_H; 
-// }
 
 void LCD_Clear(uint32_t color)
 {
@@ -738,212 +933,789 @@ void uart_init(int baud_rate, int tx_pin, int rx_pin) {
 }
 
 
+// 扩展芯片
+void pca9557Readreg(uint8_t cmd,uint8_t* buff)
+{
+  if (isIdle(PCA9557_I2C_SLAVE_ADDR << 1))
+  {
+    i2cWriteByte(cmd);
+    i2cStop();
+  }
+  else
+  {
+    printf("PCA9557_I2C_SLAVE_ADDR don't alive\r\n");
+  }
+  if (isIdle(PCA9557_I2C_SLAVE_ADDR << 1 | 0x01))
+  {
+    *buff = i2cReadByte(0);
+    i2cStop();
+    printf("ioConfig = %x\r\n",*buff);
+  }
 
-#define I2C_MASTER_SCL_IO           33          /*!< GPIO number for I2C master clock */
-#define I2C_MASTER_SDA_IO           32          /*!< GPIO number for I2C master data  */
-#define I2C_MASTER_NUM              I2C_NUM_0   /*!< I2C port number for master dev */
-#define I2C_MASTER_TX_BUF_DISABLE   0           /*!< I2C master do not need buffer */
-#define I2C_MASTER_RX_BUF_DISABLE   0           /*!< I2C master do not need buffer */
-#define I2C_MASTER_FREQ_HZ          400000      /*!< I2C master clock frequency */
+}
 
-#define ADDR_CONFIG 0x24
-#define ADDR_DIGIT1  0x34
-#define ADDR_DIGIT2  0x35
-#define ADDR_DIGIT3  0x36
-#define ADDR_DIGIT4  0x37
+void pca9557Setreg(uint8_t cmd,uint8_t value)
+{
+  if (isIdle(PCA9557_I2C_SLAVE_ADDR << 1))
+  {
+    i2cWriteByte(cmd);
+    i2cWriteByte(value);
+    i2cStop();
+  }
+  else
+  {
+    printf("PCA9557_I2C_SLAVE_ADDR don't alive\r\n");
+  }
 
-// ADDR_CONFIG 0xf1
-// ADDR_DIGIT1 0x00
+}
 
-// void i2c_master_init(void)
-// {
-//     i2c_config_t conf;
-//     conf.mode = 1;
-//     conf.sda_io_num = I2C_MASTER_SDA_IO;
-//     conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
-//     conf.scl_io_num = I2C_MASTER_SCL_IO;
-//     conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
-//     conf.master.clk_speed = I2C_MASTER_FREQ_HZ;
-//     i2c_param_config(I2C_MASTER_NUM, &conf);
-//     i2c_driver_install(I2C_MASTER_NUM, conf.mode,
-//                        I2C_MASTER_RX_BUF_DISABLE,
-//                        I2C_MASTER_TX_BUF_DISABLE, 0);
-// }
 
-// void i2c_master_write_byte(uint8_t dev_addr, uint8_t reg_addr, uint8_t data)
-// {
-//     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-//     i2c_master_start(cmd);
-//     i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_WRITE, ACK_CHECK_EN);
-//     i2c_master_write_byte(cmd, reg_addr, ACK_CHECK_EN);
-//     i2c_master_write_byte(cmd, data, ACK_CHECK_EN);
-//     i2c_master_stop(cmd);
-//     i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
-//     i2c_cmd_link_delete(cmd);
-// }
+void pca9557Init(void)
+{
+  // uint8_t ioConfig;
 
-// uint8_t i2c_master_read_byte(uint8_t dev_addr, uint8_t reg_addr)
-// {
-//     uint8_t data = 0;
-//     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-//     i2c_master_start(cmd);
-//     i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_WRITE, ACK_CHECK_EN);
-//     i2c_master_write_byte(cmd, reg_addr, ACK_CHECK_EN);
-//     i2c_master_start(cmd);
-//     i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_READ, ACK_CHECK_EN);
-//     i2c_master_read_byte(cmd, &data, I2C_MASTER_LAST_NACK);
-//     i2c_master_stop(cmd);
-//     i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
-//     i2c_cmd_link_delete(cmd);
-//     return data;
-// }
+  i2cGpioConfiguration();
+  uint8_t v;
+  pca9557Readreg(PCA9557_CONTROL_REG_1,&v);
+  printf("PCA9557_CONTROL_REG_1 =%x\r\n",v);
+  pca9557Readreg(PCA9557_CONTROL_REG_3,&v);
+  printf("PCA9557_CONTROL_REG_3 =%x\r\n",v);
 
-// #define IIC_SCL_PIN 33
-// #define IIC_SDA_PIN 32
-// #define IIC_FREQ_HZ 400000
+  pca9557Setreg(PCA9557_CONTROL_REG_3,0x0); // 初始化
 
-// void iic_init(void)
-// {
-//     i2c_config_t iic_config = {
-//         .mode = I2C_MODE_MASTER,
-//         .sda_io_num = IIC_SDA_PIN,
-//         .scl_io_num = IIC_SCL_PIN,
-//         .sda_pullup_en = GPIO_PULLUP_ENABLE,
-//         .scl_pullup_en = GPIO_PULLUP_ENABLE,
-//         .master.clk_speed = IIC_FREQ_HZ
-//     };
+  pca9557Setreg(PCA9557_CONTROL_REG_1,0x00);
 
-//     i2c_param_config(I2C_NUM_0, &iic_config);
-//     i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
-// }
+  pca9557Readreg(PCA9557_CONTROL_REG_1,&v);
+  printf("PCA9557_CONTROL_REG_1 =%x\r\n",v);
+  pca9557Readreg(PCA9557_CONTROL_REG_3,&v);
+  printf("PCA9557_CONTROL_REG_3 =%x\r\n",v);
 
-// void iic_send_data(uint8_t *data, size_t len,uint8_t add)
-// {
-//     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+}
+void resetLCD(void)
+{
+  pca9557Setreg(PCA9557_CONTROL_REG_1,0x0);
+  vTaskDelay(100 / portTICK_PERIOD_MS);
+  pca9557Setreg(PCA9557_CONTROL_REG_1,0x04);
+}
+//-------------------------------------
 
-//     i2c_master_start(cmd);
-//     i2c_master_write_byte(cmd, add,true);
-//     i2c_master_write(cmd, data, len, true);
-//     i2c_master_stop(cmd);
 
-//     esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, 200 / portTICK_RATE_MS);
-//     if (ret != ESP_OK) {
-//     }
-//     printf("ret %x,add = %d\r\n",ret,add);
-//     i2c_cmd_link_delete(cmd);
-// }
+// 步进电机
+#define HIGH 1
+#define LOW 0
+
+#define INA GPIO_NUM_41
+#define INB GPIO_NUM_42
+#define INC GPIO_NUM_44
+#define IND GPIO_NUM_43
+
+#define delaytime 20
+uint8_t step = 0;
+void stepMotor(bool type, int speed) // 执行1次，步进电机转动1步，2步对应一个像素
+{
+    if (type) {
+        switch (step % 4) {
+            case 0:
+                gpio_set_level(INA, LOW);
+                gpio_set_level(INB, HIGH);
+                gpio_set_level(INC, HIGH);
+                gpio_set_level(IND, LOW);
+                break;
+            case 1:
+                gpio_set_level(INA, HIGH);
+                gpio_set_level(INB, LOW);
+                gpio_set_level(INC, HIGH);
+                gpio_set_level(IND, LOW);
+                break;
+            case 2:
+                gpio_set_level(INA, HIGH);
+                gpio_set_level(INB, LOW);
+                gpio_set_level(INC, LOW);
+                gpio_set_level(IND, HIGH);
+                break;
+            case 3:
+                gpio_set_level(INA, LOW);
+                gpio_set_level(INB, HIGH);
+                gpio_set_level(INC, LOW);
+                gpio_set_level(IND, HIGH);
+                break;
+        }
+    } else {
+        switch (step % 4) {
+            case 0:
+                gpio_set_level(INA, LOW);
+                gpio_set_level(INB, HIGH);
+                gpio_set_level(INC, LOW);
+                gpio_set_level(IND, HIGH);
+                break;
+            case 1:
+                gpio_set_level(INA, HIGH);
+                gpio_set_level(INB, LOW);
+                gpio_set_level(INC, LOW);
+                gpio_set_level(IND, HIGH);
+                break;
+            case 2:
+                gpio_set_level(INA, HIGH);
+                gpio_set_level(INB, LOW);
+                gpio_set_level(INC, HIGH);
+                gpio_set_level(IND, LOW);
+                break;
+            case 3:
+                gpio_set_level(INA, LOW);
+                gpio_set_level(INB, HIGH);
+                gpio_set_level(INC, HIGH);
+                gpio_set_level(IND, LOW);
+                break;
+        }
+    }
+    step++;
+    // 等待一段时间
+    vTaskDelay(speed / portTICK_PERIOD_MS);
+}
+
+void intMx1508s(void)
+{
+    // 设置步进电机引脚为输出模式
+    gpio_reset_pin(INA);
+    gpio_set_direction(INA, GPIO_MODE_OUTPUT);
+    gpio_reset_pin(INB);
+    gpio_set_direction(INB, GPIO_MODE_OUTPUT);
+    gpio_reset_pin(INC);
+    gpio_set_direction(INC, GPIO_MODE_OUTPUT);
+    gpio_reset_pin(IND);
+    gpio_set_direction(IND, GPIO_MODE_OUTPUT);
+#if 0
+    for (int i = 0; i < setps; i++) {
+      if (type) {
+          // 设置步进电机引脚的电压模式
+          gpio_set_level(INA, LOW);
+          gpio_set_level(INB, HIGH);
+          gpio_set_level(INC, HIGH);
+          gpio_set_level(IND, LOW);
+
+          // 等待一段时间
+          vTaskDelay(speed / portTICK_PERIOD_MS);
+
+          // 设置步进电机引脚的电压模式
+          gpio_set_level(INA, HIGH);
+          gpio_set_level(INB, LOW);
+          gpio_set_level(INC, HIGH);
+          gpio_set_level(IND, LOW);
+
+          // 等待一段时间
+          vTaskDelay(speed / portTICK_PERIOD_MS);
+
+          gpio_set_level(INA, HIGH);
+          gpio_set_level(INB, LOW);
+          gpio_set_level(INC, LOW);
+          gpio_set_level(IND, HIGH);
+
+          // // 等待一段时间
+          vTaskDelay(speed / portTICK_PERIOD_MS);
+
+          // 设置步进电机引脚的电压模式
+          gpio_set_level(INA, LOW);
+          gpio_set_level(INB, HIGH);
+          gpio_set_level(INC, LOW);
+          gpio_set_level(IND, HIGH);
+
+          // // 等待一段时间
+          vTaskDelay(speed / portTICK_PERIOD_MS);
+      }
+      else
+      {
+        gpio_set_level(INA, LOW);
+        gpio_set_level(INB, HIGH);
+        gpio_set_level(INC, LOW);
+        gpio_set_level(IND, HIGH);
+
+        // // 等待一段时间
+        vTaskDelay(speed / portTICK_PERIOD_MS);
+
+        gpio_set_level(INA, HIGH);
+        gpio_set_level(INB, LOW);
+        gpio_set_level(INC, LOW);
+        gpio_set_level(IND, HIGH);
+
+
+        // // 等待一段时间
+        vTaskDelay(speed / portTICK_PERIOD_MS);
+
+        gpio_set_level(INA, HIGH);
+        gpio_set_level(INB, LOW);
+        gpio_set_level(INC, HIGH);
+        gpio_set_level(IND, LOW);
+        // 等待一段时间
+        vTaskDelay(speed / portTICK_PERIOD_MS);
+
+        gpio_set_level(INA, LOW);
+        gpio_set_level(INB, HIGH);
+        gpio_set_level(INC, HIGH);
+        gpio_set_level(IND, LOW);
+        // 等待一段时间
+        vTaskDelay(speed / portTICK_PERIOD_MS);
+      }
+    }
+#endif
+
+}
+
+void deintMx1508s(void) // 使用后失能，不然长时间步进会电机发烫
+{
+    gpio_set_level(INA, LOW);
+    gpio_set_level(INB, LOW);
+    gpio_set_level(INC, LOW);
+    gpio_set_level(IND, LOW);
+    gpio_reset_pin(INA);
+    gpio_set_direction(INA, GPIO_MODE_INPUT);
+    gpio_reset_pin(INB);
+    gpio_set_direction(INB, GPIO_MODE_INPUT);
+    gpio_reset_pin(INC);
+    gpio_set_direction(INC, GPIO_MODE_INPUT);
+    gpio_reset_pin(IND);
+    gpio_set_direction(IND, GPIO_MODE_INPUT);
+}
+
+//-----------------------------------------------------------------
+// 打印头
+#define PRINT_DI GPIO_NUM_40 // data in
+#define PRINT_SCLK GPIO_NUM_39 // clock
+#define PRINT_LAT GPIO_NUM_38 // lanch (low active)
+#define PRINT_STB GPIO_NUM_48 // strobe (low active)
+#define HEAT_TIME 15 // 20ms
+
+
+void openPrintPower(void)
+{
+  uint8_t v;
+  pca9557Readreg(PCA9557_CONTROL_REG_1,&v);
+  pca9557Setreg(PCA9557_CONTROL_REG_1,v | PCA9557_PRINT_POWER); // 拉高电源线
+}
+
+void closePrintPower(void)
+{
+  uint8_t v;
+  pca9557Readreg(PCA9557_CONTROL_REG_1,&v);
+  pca9557Setreg(PCA9557_CONTROL_REG_1,(v & ~PCA9557_PRINT_POWER)); // 拉低电源线
+}
+
+#define PRINT_DI_H gpio_set_level(PRINT_DI, 1)
+#define PRINT_DI_L gpio_set_level(PRINT_DI, 0)
+
+#define PRINT_CLK_H gpio_set_level(PRINT_SCLK, 1)
+#define PRINT_CLK_L gpio_set_level(PRINT_SCLK, 0)
+
+#define PRINT_STB_H gpio_set_level(PRINT_STB, 1)
+#define PRINT_STB_L gpio_set_level(PRINT_STB, 0)
+
+#define PRINT_LAT_H gpio_set_level(PRINT_LAT, 1)
+#define PRINT_LAT_L gpio_set_level(PRINT_LAT, 0)
+#define printf_delay 0
+
+void Delay_us(uint16_t time)
+{
+  for(uint16_t i = 0;i < time;i++)
+  {
+    for(uint16_t j = 0;j < time;j++);
+  }
+}
+
+uint8_t testData2[] =
+{
+0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0xF0,0x07,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x00,0x00,0x00,
+0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0x00,
+0x00,0x80,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xE0,0xFF,0xFF,
+0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x3F,0x00,/*"未命名文件",0*/
+
+};
+
+uint8_t testData1[] =
+{
+
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x0E,0xFC,0x07,0xF8,0xF3,0x0F,0xFC,
+0xF7,0x3F,0x00,0x00,0x00,0x1F,0xFC,0x0F,0xFE,0xF7,0x3F,0xFC,0xF7,0x3F,0x00,0x00,
+0x00,0x1F,0x1C,0x1E,0x1F,0x77,0x78,0x1C,0x70,0x00,0x00,0x00,0x80,0x3F,0x1C,0x9C,
+0x07,0x70,0xF0,0x1C,0x70,0x00,0x00,0x00,0x80,0x3B,0x1C,0x9C,0x03,0x70,0xE0,0x1C,
+0x70,0x00,0x00,0x00,0x80,0x3B,0x1C,0xCE,0x03,0x70,0xE0,0x1D,0x70,0x00,0x00,0x00,
+0xC0,0x7B,0xFC,0xC7,0x03,0x70,0xE0,0xFD,0xF7,0x3F,0x00,0x00,0xC0,0x71,0xFC,0xCF,
+0x03,0x70,0xE0,0xFD,0xF7,0x3F,0x00,0x00,0xC0,0x71,0x1C,0xDE,0x03,0x70,0xE0,0x1D,
+0x70,0x00,0x00,0x00,0xE0,0xFF,0x1C,0xBC,0x03,0x70,0xE0,0x1C,0x70,0x00,0x00,0x00,
+0xE0,0xFF,0x1C,0xBC,0x07,0x70,0xF0,0x1C,0x70,0x00,0x00,0x00,0xF0,0xE0,0x1D,0x1E,
+0x0F,0x77,0x78,0x1C,0x70,0x00,0x00,0x00,0xF0,0xE0,0xFD,0x1F,0xFE,0xF7,0x3F,0xFC,
+0x77,0x00,0x00,0x00,0x70,0xC0,0xFD,0x07,0xFC,0xF1,0x0F,0xFC,0x77,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,/*"C:\Users\Administrator\Desktop\无标题.bmp",0*/
+};
+
+uint8_t testData[] = {
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x1F,0x00,
+0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x1F,0x00,0x00,0xF0,0xFF,0xFF,
+0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x1F,0x00,0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+0xFF,0xFF,0x1F,0x00,0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x1F,0x00,
+0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x1F,0x00,0x00,0xF0,0xFF,0xFF,
+0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,
+0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,
+0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,
+0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,
+0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,
+0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,
+0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,
+0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,
+0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,
+0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,
+0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,
+0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,
+0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0xFC,0xF8,0xFF,0xFF,0xFF,
+0xFF,0xFF,0x1F,0x00,0x00,0xF0,0x03,0xFC,0xF8,0xFF,0xFF,0xFF,0xFF,0xFF,0x1F,0x00,
+0x00,0xF0,0x03,0xFC,0xF8,0xFF,0xFF,0xFF,0xFF,0xFF,0x1F,0x00,0x00,0xF0,0x03,0xFC,
+0xF8,0xFF,0xFF,0xFF,0xFF,0xFF,0x1F,0x00,0x00,0xF0,0x03,0xFC,0xF8,0xFF,0xFF,0xFF,
+0xFF,0xFF,0x1F,0x00,0x00,0xF0,0x03,0xFC,0xF8,0xFF,0xFF,0xFF,0xFF,0xFF,0x1F,0x00,
+0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xF0,0x03,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,
+0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,
+0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,
+0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,
+0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,
+0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,
+0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0x3F,
+0x7E,0xC0,0x1F,0x00,0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0x3F,0x7E,0xC0,0x1F,0x00,
+0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0x3F,0x7E,0xC0,0x1F,0x00,0x00,0xF0,0xFF,0xFF,
+0xFF,0xFF,0xFF,0x3F,0x7E,0xC0,0x1F,0x00,0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0x3F,
+0x7E,0xC0,0x1F,0x00,0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0x3F,0x7E,0xC0,0x1F,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,
+0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,
+0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,
+0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,
+0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,
+0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,
+0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,
+0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,
+0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0x03,0x00,
+0x00,0x00,0x00,0x00,0x00,0xC0,0x1F,0x00,0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+0xFF,0xFF,0x1F,0x00,0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x1F,0x00,
+0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x1F,0x00,0x00,0xF0,0xFF,0xFF,
+0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x1F,0x00,0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+0xFF,0xFF,0x1F,0x00,0x00,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x1F,0x00,
+0x00,0x00,0x00,0x00,0x00,0xE0,0x0F,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0xE0,0x0F,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xE0,0x0F,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xE0,0x0F,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0xE0,0x0F,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0xE0,0x0F,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xE0,0x0F,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xE0,0x0F,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0xE0,0x0F,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0xE0,0x0F,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xE0,0x0F,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFC,0xFF,0xFF,0xFF,0xFF,0x7F,0x00,0x00,0x00,
+0x00,0x00,0x00,0xFC,0xFF,0xFF,0xFF,0xFF,0x7F,0x00,0x00,0x00,0x00,0x00,0x00,0xFC,
+0xFF,0xFF,0xFF,0xFF,0x7F,0x00,0x00,0x00,0x00,0x00,0x00,0xFC,0xFF,0xFF,0xFF,0xFF,
+0x7F,0x00,0x00,0x00,0x00,0x00,0x00,0xFC,0xFF,0xFF,0xFF,0xFF,0x7F,0x00,0x00,0x00,
+0x00,0x00,0x00,0xFC,0xFF,0xFF,0xFF,0xFF,0x7F,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+};
+
+void luomuInit(void)
+{
+  openPrintPower();
+  gpio_reset_pin(PRINT_DI);
+  gpio_set_direction(PRINT_DI, GPIO_MODE_OUTPUT);
+  gpio_reset_pin(PRINT_SCLK);
+  gpio_set_direction(PRINT_SCLK, GPIO_MODE_OUTPUT);
+  gpio_reset_pin(PRINT_LAT);
+  gpio_set_direction(PRINT_LAT, GPIO_MODE_OUTPUT);
+  gpio_reset_pin(PRINT_STB);
+  gpio_set_direction(PRINT_STB, GPIO_MODE_OUTPUT);
+  PRINT_CLK_L;
+  PRINT_STB_H;
+  // PRINT_LAT_H;
+} 
+
+void dataTransmitBit(bool bit)
+{
+  if(bit)
+  {
+    PRINT_DI_H;
+  }
+  else
+  {
+    PRINT_DI_L;
+  }
+  Delay_us(printf_delay);
+  PRINT_CLK_L;
+  PRINT_CLK_H;
+  Delay_us(printf_delay);
+}
+
+void dataTransmit(uint16_t data) // 低位在前逐行式
+{
+  for(uint8_t i = 0;i < 8;i++)
+  {
+    dataTransmitBit(data & 0x01);
+    data = data >> 1;
+  }
+}
+// 一行96个像素点
+void printfTestOneLine(uint8_t *data) // 打印时间20ms以上保证清晰，同时加热所有点会导致电压不够，esp32会欠压启动不了，所以选择先打印一半再打印另一半
+{
+  PRINT_LAT_H;
+  for(uint16_t i = 0;i < 6; i++)
+  {
+    // dataTransmit(0xFF);
+    dataTransmit(data[i]);
+  }
+  for(uint16_t i = 0;i < 6; i++) // 发送完96个像素点（12字节后锁存，然后加热）
+  {
+    dataTransmit(0x00);
+  }
+  PRINT_LAT_L;
+  PRINT_LAT_H; // 数据锁存
+  PRINT_STB_L;
+  vTaskDelay(HEAT_TIME / portTICK_PERIOD_MS); // 加热时间
+  PRINT_STB_H;
+  for(uint16_t i = 0;i < 6; i++)
+  {
+    dataTransmit(0x00);
+  }
+  for(uint16_t i = 0;i < 6; i++) // 打印另一半
+  {
+    // dataTransmit(0xFF);
+    dataTransmit(data[6 + i]);
+  }
+  PRINT_LAT_L;
+  // Delay_us(1);
+  PRINT_LAT_H;
+  PRINT_STB_L;
+  vTaskDelay(HEAT_TIME / portTICK_PERIOD_MS);
+  PRINT_STB_H;
+
+}
+
+void printfTest(uint8_t *data, uint16_t n)
+{
+    for (uint16_t line = 0; line < n; line++)
+    {
+        printfTestOneLine(&data[line*12]);
+        stepMotor(1,20);
+        stepMotor(1,20);        
+    }
+
+    deintMx1508s();
+    closePrintPower();
+}
+
+
+#if 0 //蜂鸣器
+#include "driver/ledc.h"
+
+ledc_timer_config_t ledc_timer = {
+        .duty_resolution = LEDC_TIMER_13_BIT, // 设置占空比分辨率为13位
+        .freq_hz = 2700, // 设置PWM频率为2.7kHz
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .timer_num = LEDC_TIMER_0
+    };
+
+ledc_channel_config_t ledc_channel = {
+    .channel    = LEDC_CHANNEL_0,
+    .duty       = 0,
+    .gpio_num   = GPIO_NUM_8,
+    .speed_mode = LEDC_LOW_SPEED_MODE,
+    .timer_sel  = LEDC_TIMER_0
+};
+void beepInit(void)
+{
+
+    ledc_timer_config(&ledc_timer);
+
+    // 配置 LEDC Channel
+
+    ledc_channel_config(&ledc_channel);
+
+    // 启动 PWM
+    ledc_fade_func_install(0);
+    ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, 0); // 设置占空比为50%
+    ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
+}
+
+void beepContorl(uint8_t vol,uint16_t fre)
+{
+  if (vol>100)
+    vol = vol % 100;
+  if (fre > 5000)
+    fre = fre % 5000;
+  ledc_timer.freq_hz = fre;
+  ledc_timer_config(&ledc_timer);
+  ledc_channel.duty = 4096 * vol / 100;
+  ledc_channel_config(&ledc_channel);
+  ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, 4096 * vol / 100); // 设置占空比为50%
+  ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
+  printf("vol = %d,fre = %d\r\n",vol,fre);
+}
+#endif
+// -----------------------------------
+
+// RTC
+#if 0
+#define REG_CTRL_STATUS_1 0x00
+#define REG_CTRL_STATUS_2 0x01
+#define REG_DATETIME_SEC 0x02
+#define REG_CLOCKOUT_CTL 0x0D
+#define REG_TIMER_CONTROL 0x0E
+#define SLAVE_ADDR (0xA2 >> 1)
+#define BinToBCD(bin) ((((bin) / 10) << 4) + ((bin) % 10))
+
+typedef struct
+{
+    uint8_t second; // 0..59
+    uint8_t minute; // 0..59
+    uint8_t hour; // 0..23
+    uint8_t day; // 1..31
+    uint8_t weekday; // 0..6 (0 means Sunday)
+    uint8_t month; // 1..12
+    uint16_t year; // 2021...
+} rtc_dateTime_t;
+
+
+int i2cs_tx_data(uint8_t devAddr7, uint8_t addr, uint8_t* buf, uint8_t size) {
+    int i;
+    i2cStart();
+    if (i2cWriteByte(devAddr7 << 1) == 0) {
+        i2cStop();
+        return -1;
+    }
+    if (i2cWriteByte(addr) == 0) {
+        i2cStop();
+        return -2;
+    }
+    for (i = 0; i < size; i++) {
+        if (i2cWriteByte(*buf++) == 0) {
+            i2cStop();
+            return -3;
+        }
+    }
+    i2cStop();
+    return 0;
+}
+
+int i2cs_rx_data(uint8_t devAddr7, uint8_t addr, uint8_t* buf, uint8_t size) {
+    uint8_t i;
+    i2cStart();
+    if (i2cWriteByte(devAddr7 << 1) == 0) {
+        i2cStop();
+        return -1;
+    }
+    if (i2cWriteByte(addr) == 0) {
+        i2cStop();
+        return -2;
+    }
+    i2cStart();
+    if (i2cWriteByte((devAddr7 << 1) + 1) == 0) {
+        i2cStop();
+        return -3;
+    }
+    for (i = 0; i < (size - 1); i++) {
+        *buf++ = i2cReadByte(1);
+    }
+    *buf++ = i2cReadByte(0);
+
+    i2cStop();
+    return 0;
+}
+
+void hal_rtc_time_init(void) {
+    int ret;
+    uint8_t data = 0;
+
+    data = 0;
+    ret = i2cs_tx_data(SLAVE_ADDR, REG_CTRL_STATUS_1, &data, sizeof(data));
+    if (ret) printf("ret=%d\r\n", ret);
+
+    uint8_t mode = 0;    // PCF_ALARM_INTERRUPT_ENABLE | PCF_TIMER_INTERRUPT_ENABLE;
+    data = mode & 0x13;  // Mask unnecessary bits
+    ret = i2cs_tx_data(SLAVE_ADDR, REG_CTRL_STATUS_2, &data, sizeof(data));
+    if (ret) printf("ret=%d\r\n", ret);
+}
+
+int8_t rtc_get_datetime(rtc_dateTime_t* dt) {
+    uint8_t buffer[7];
+    int ret = i2cs_rx_data(SLAVE_ADDR, REG_DATETIME_SEC, buffer, sizeof(buffer));
+    if (ret) {
+        printf("ret=%d\r\n", ret);
+        return -1;
+    }
+    for (uint8_t i=0;i<7;i++)
+    {
+      printf("buffer=%x\r\n", buffer[i]);
+    }
+    dt->second = (((buffer[0] >> 4) & 0x07) * 10) + (buffer[0] & 0x0F);
+    dt->minute = (((buffer[1] >> 4) & 0x07) * 10) + (buffer[1] & 0x0F);
+    dt->hour = (((buffer[2] >> 4) & 0x03) * 10) + (buffer[2] & 0x0F);
+    dt->day = (((buffer[3] >> 4) & 0x03) * 10) + (buffer[3] & 0x0F);
+    dt->weekday = (buffer[4] & 0x07);
+    dt->month = ((buffer[5] >> 4) & 0x01) * 10 + (buffer[5] & 0x0F);
+    dt->year = 1900 + ((buffer[6] >> 4) & 0x0F) * 10 + (buffer[6] & 0x0F);
+
+    if (buffer[5] & 0x80) {  // century bit is set, means 2000 + ...
+        dt->year += 100;
+    }
+
+    if (buffer[0] & 0x80) {  // Clock integrity not guaranted (oscillator has stopped or been interrupted)
+        return 1;
+    }
+    return 0;
+}
+
+int8_t rtc_set_datetime(rtc_dateTime_t* dt) {
+    int ret;
+    uint8_t buffer[7];
+
+    if (dt->second >= 60 || dt->minute >= 60 || dt->hour >= 24 || dt->day > 32 || dt->weekday > 6 || dt->month > 12 || dt->year < 1900 || dt->year >= 3000) {
+        printf("invalid datetime\r\n");
+        return -1;
+    }
+
+    buffer[0] = BinToBCD(dt->second) & 0x7F;
+    buffer[1] = BinToBCD(dt->minute) & 0x7F;
+    buffer[2] = BinToBCD(dt->hour) & 0x3F;
+    buffer[3] = BinToBCD(dt->day) & 0x3F;
+    buffer[4] = BinToBCD(dt->weekday) & 0x07;
+    buffer[5] = BinToBCD(dt->month) & 0x1F;
+
+    if (dt->year >= 2000) {
+        buffer[5] |= 0x80;  // century bit
+        buffer[6] = BinToBCD(dt->year - 2000);
+    } else {
+        buffer[6] = BinToBCD(dt->year - 1900);
+    }
+        for (uint8_t i=0;i<7;i++)
+    {
+      printf("wbuffer=%x\r\n", buffer[i]);
+    }
+    ret = i2cs_tx_data(SLAVE_ADDR, REG_DATETIME_SEC, buffer, sizeof(buffer));
+    if (ret) {
+        printf("ret=%d\r\n", ret);
+        return -1;
+    }
+    return 0;
+}
+
+void rtcWriteTest(void)
+{
+    rtc_dateTime_t dt;
+    dt.year = 0x7d3;
+    dt.month = 0x03;
+    dt.day = 0x01;
+    dt.hour = 0x02;
+    dt.minute = 0x03;
+    dt.second = 0x04;
+    dt.weekday = 0x05;
+    // curr_time_val.fraction_256;
+    // curr_time_val.adjust_reason;
+    int8_t ret = rtc_set_datetime(&dt);
+    printf("RETSET = %d\r\n",ret);
+}
+
+void rtcTest(void)
+{
+  i2cGpioConfiguration();
+  hal_rtc_time_init();
+  rtcWriteTest();
+  rtc_dateTime_t dt;
+  int8_t ret = rtc_get_datetime(&dt);
+  if (0 == ret) {
+      printf("%d-%02d-%02d %02d:%02d:%02d (W%d)", \
+                  dt.year, dt.month, dt.day, \
+                  dt.hour, dt.minute, dt.second, \
+                  dt.weekday
+                  );
+  }
+}
+#endif // rtc
+
+
+#if 0
+// 光电模块
+#include "driver/adc.h"
+// // #include "esp_adc_cal.h"
+#include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_continuous.h"
+void lightMonitor(void)
+{
+    adc1_config_width(ADC_WIDTH_BIT_12);
+    // adc2_config_width(ADC_WIDTH_BIT_12);
+    adc2_config_channel_atten(ADC2_CHANNEL_2, ADC_ATTEN_DB_11);
+    adc1_config_channel_atten(ADC1_CHANNEL_2, ADC_ATTEN_DB_11);
+    int adc_value = adc1_get_raw(ADC1_CHANNEL_2);
+    printf("adc1 = %d\r\n",adc_value);
+    uint16_t v;
+    adc2_get_raw(ADC2_CHANNEL_2,ADC_WIDTH_BIT_12,&v);
+    printf("adc2 = %d\r\n",v);
+}
+#endif
 
 void app_main(void)
 {
+      // beepInit();
+      // beepContorl(20,2000);
+      pca9557Init();
       gpio_init();
       LCD_Init();
-      uart_init(19200,19,18);
-      uint8_t data0[2] = {0x08,0x00};
-      uart_write_bytes(UART_NUM_1, data0, 2);
-      vTaskDelay(20/ portTICK_PERIOD_MS);
-      uint8_t data1[2] = {0x08,0xFF};
-      uart_write_bytes(UART_NUM_1, data1, 2);
-      vTaskDelay(20/ portTICK_PERIOD_MS);
-      uint8_t data2[2] = {0x18,0xfe};
-      uart_write_bytes(UART_NUM_1, data2, 2);
-      // rollInit();
-      // i2c_master_init();
-      // vTaskDelay(1000 / portTICK_PERIOD_MS);
-      // i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-      // i2c_master_start(cmd);
-      // i2c_master_write_byte(cmd, (ADDR_CONFIG << 1) | I2C_MASTER_WRITE, true);
-      // i2c_master_write_byte(cmd, 0xf1, true);
-      iic_init();
-      // uint8_t A = 0xF1;
-      uint8_t B = 0x00;
-      // iic_send_data(&A,1,ADDR_CONFIG);
-      // iic_send_data(&B,1,ADDR_DIGIT1);
-      // iic_send_data(&B,1,ADDR_DIGIT2);
-      // iic_send_data(&B,1,ADDR_DIGIT3);
-      // iic_send_data(&B,1,ADDR_DIGIT4);
-      i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-      i2c_master_start(cmd);
-      // uint8_t data_rd[257];
-      for(uint16_t i = 0; i < 256;i++){
-      // data_rd[i]= i2c_master_write_byte(cmd, i, true);
-      // i2c_master_stop(cmd);
-      // i2c_master_read(cmd, &data_rd[i], 1, I2C_MASTER_ACK);
-      // vTaskDelay(100 / portTICK_PERIOD_MS);
-      iic_send_data(&B,1,i);
-      }
-      // for(uint16_t i = 0; i < 256;i++){
-      //   printf("data_rd[%d] = %x\r\n",i,data_rd[i]);
-      // }
-      // i2c_master_write_byte(cmd, (ADDR_DIGIT1 << 1) | I2C_MASTER_WRITE, true);
-      // i2c_master_write_byte(cmd, 0x00, true); 
 
-      // i2c_master_write_byte(cmd, (ADDR_DIGIT2 << 1) | I2C_MASTER_WRITE, true);
-      // i2c_master_write_byte(cmd, 0x00, true);
+      LCD_Clear(GREEN);
 
-      // i2c_master_write_byte(cmd, (ADDR_DIGIT3 << 1) | I2C_MASTER_WRITE, true);
-      // i2c_master_write_byte(cmd, 0x00, true);
+      vTaskDelay(3000 / portTICK_PERIOD_MS);
+      luomuInit();
+      intMx1508s();
+      printfTest(testData,96);
+      closePrintPower();// 使用后关闭打印电源，并不是打印机全部的电源
 
-      // i2c_master_write_byte(cmd, (ADDR_DIGIT4 << 1) | I2C_MASTER_WRITE, true);
-      // i2c_master_write_byte(cmd, 0x00, true); 
+      deintMx1508s();
+
+      LCD_Clear(GREEN);
+      luomuInit();
+      intMx1508s();
+      printfTest(testData1,30);
+      closePrintPower();
+
+      deintMx1508s();
 
 
       while(1) {
-      // LCD_Init();
-        LCD_Clear(RED);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        // LCD_Clear(GBLUE);
-        // vTaskDelay(1000 / portTICK_PERIOD_MS);
+            LCD_Clear(RED);
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+            // // printf("Turning on the LED\n");
+            LCD_Clear(GREEN);
+            // beepContorl(20,2000);
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+            LCD_Clear(WHITE);
+            // beepContorl(0,2000);
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            while(1) {
+            // printf("hello word = %d\r\n",i++);
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
 
-        // drawBlock(50,50,200,60,WHITE);
-        // drawBlock(50,80,200,90,WHITE);
-        // drawBlock(50,100,200,120,WHITE);
-        // keepRoll1();
-      drawPicture(15,15,24,26,number0_18,WHITE,BLACK);
-      drawPicture(45,15,24,26,number1_18,WHITE,BLACK);
-      drawPicture(75,15,24,26,number2_18,WHITE,BLACK);
-      drawPicture(105,15,24,26,number3_18,WHITE,BLACK);
-      drawPicture(135,15,24,26,number4_18,WHITE,BLACK);
-      drawPicture(165,15,24,26,number5_18,WHITE,BLACK);
-      drawPicture(195,15,24,26,number6_18,WHITE,BLACK);
-      drawPicture(225,15,24,26,number7_18,WHITE,BLACK);
-      drawPicture(255,15,24,26,number8_18,WHITE,BLACK);
-      drawPicture(285,15,24,26,number9_18,WHITE,BLACK);
-
-      drawPicture(15,46,24,26,number0_18,WHITE,BLACK);
-      drawPicture(45,46,24,26,number1_18,WHITE,BLACK);
-      drawPicture(75,46,24,26,number2_18,WHITE,BLACK);
-      drawPicture(105,46,24,26,number3_18,WHITE,BLACK);
-      drawPicture(135,46,24,26,number4_18,WHITE,BLACK);
-      drawPicture(165,46,24,26,number5_18,WHITE,BLACK);
-      drawPicture(195,46,24,26,number6_18,WHITE,BLACK);
-      drawPicture(225,46,24,26,number7_18,WHITE,BLACK);
-      drawPicture(255,46,24,26,number8_18,WHITE,BLACK);
-      drawPicture(285,46,24,26,number9_18,WHITE,BLACK);
-
-      drawPicture(15,80,24,26,number0_18,RED,BLACK);
-      drawPicture(45,80,24,26,number1_18,GREEN,BLACK);
-      drawPicture(75,80,24,26,number2_18,BLUE,BLACK);
-      drawPicture(105,80,24,26,number3_18,YELLOW,BLACK);
-      drawPicture(135,80,24,26,number4_18,BROWN,BLACK);
-      drawPicture(165,80,24,26,number5_18,BRRED,BLACK);
-      drawPicture(195,80,24,26,number6_18,GRAY,BLACK);
-      drawPicture(225,80,24,26,number7_18,MAGENTA,BLACK);
-      drawPicture(255,80,24,26,number8_18,CYAN,BLACK);
-      drawPicture(285,80,24,26,number9_18,WHITE,BLACK);
-      // // printf("Turning on the LED\n");
-      // LCD_Clear(GREEN);
-      // vTaskDelay(1000 / portTICK_PERIOD_MS);
-      // LCD_Clear(YELLOW);
-      // vTaskDelay(1000 / portTICK_PERIOD_MS);
-      // // LCD_Clear(BROWN);
-      // vTaskDelay(1000 / portTICK_PERIOD_MS);
-      // LCD_Clear(BRRED);
-      // vTaskDelay(1000 / portTICK_PERIOD_MS);
-      // LCD_Clear(GRAY);
-      while(1) {
-        printf("hello word\r\n");
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-      }
+            }
  }
 }
 
